@@ -46,10 +46,14 @@ The token must be able to invite users to the target organization.
 ## Development
 
 ```bash
-python3.12 -m venv .venv
-. .venv/bin/activate
-pip install -e .[dev]
-pytest
+uv sync
+uv run pytest
+```
+
+When changing dependencies, update the lockfile:
+
+```bash
+uv lock
 ```
 
 ## Next plugin

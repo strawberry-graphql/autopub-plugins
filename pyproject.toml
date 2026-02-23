@@ -16,7 +16,7 @@ dependencies = [
   "autopub>=1.0.0a58,<2.0.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "pytest>=8.0.0",
 ]
