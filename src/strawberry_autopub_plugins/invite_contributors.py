@@ -18,6 +18,14 @@ from autopub.plugins import AutopubPlugin
 from autopub.types import ReleaseInfo
 
 
+KNOWN_BOT_EXCLUSIONS = [
+    "dependabot-preview[bot]",
+    "dependabot-preview",
+    "dependabot",
+    "dependabot[bot]",
+]
+
+
 class InviteContributorsConfig(BaseModel):
     organization: str | None = None
     team_slug: str | None = Field(default=None, validation_alias="team-slug")
@@ -27,7 +35,10 @@ class InviteContributorsConfig(BaseModel):
         default=True,
         validation_alias="include-co-authors",
     )
-    exclude_users: list[str] = Field(default_factory=list, validation_alias="exclude-users")
+    exclude_users: list[str] = Field(
+        default_factory=lambda: list(KNOWN_BOT_EXCLUSIONS),
+        validation_alias="exclude-users",
+    )
     dry_run: bool = Field(default=False, validation_alias="dry-run")
 
 

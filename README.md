@@ -30,8 +30,10 @@ plugins = [
 organization = "strawberry-graphql"
 team-slug = "strawberry-contributors"
 role = "direct_member"
-skip-bots = true
 include-co-authors = true
+# Optional: extend defaults.
+# By default, skip-bots is true and these users are excluded:
+# dependabot-preview[bot], dependabot-preview, dependabot, dependabot[bot]
 exclude-users = ["renovate[bot]"]
 dry-run = false
 ```

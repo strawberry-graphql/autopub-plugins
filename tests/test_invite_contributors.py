@@ -5,7 +5,10 @@ from unittest.mock import MagicMock
 from github.GithubException import GithubException
 
 from autopub.types import ReleaseInfo
-from strawberry_autopub_plugins.invite_contributors import InviteContributorsPlugin
+from strawberry_autopub_plugins.invite_contributors import (
+    KNOWN_BOT_EXCLUSIONS,
+    InviteContributorsPlugin,
+)
 
 
 def _release_info() -> ReleaseInfo:
@@ -119,3 +122,25 @@ def test_skips_when_no_pull_request(monkeypatch) -> None:
     plugin.post_publish(_release_info())
 
     mock_github.get_organization.assert_not_called()
+
+
+def test_default_config_skips_known_bot_usernames(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "strawberry-graphql/strawberry")
+
+    plugin = InviteContributorsPlugin()
+    plugin.validate_config({})
+
+    filtered = plugin._filter_contributors(
+        {
+            "author",
+            "dependabot",
+            "dependabot-preview",
+            "dependabot[bot]",
+            "dependabot-preview[bot]",
+        }
+    )
+
+    assert plugin.config.skip_bots is True
+    assert plugin.config.exclude_users == KNOWN_BOT_EXCLUSIONS
+    assert filtered == ["author"]
