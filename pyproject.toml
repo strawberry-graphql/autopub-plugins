@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "strawberry-autopub-plugins"
+version = "0.1.0"
+description = "AutoPub plugins maintained by Strawberry GraphQL"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Strawberry GraphQL" }
+]
+dependencies = [
+  "autopub>=1.0.0a58,<2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/strawberry_autopub_plugins"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
