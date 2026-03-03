@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
-from functools import cached_property
 from typing import Literal
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
-import httpx
 from pydantic import BaseModel, Field
 
 from autopub.exceptions import AutopubException
@@ -42,23 +43,13 @@ class TypefullyPlugin(AutopubPlugin):
 
     id = "typefully"
     Config = TypefullyConfig
+    BASE_URL = "https://api.typefully.com"
 
     def __init__(self) -> None:
         self.api_key = os.environ.get("TYPEFULLY_API_KEY")
 
         if not self.api_key:
             raise AutopubException("TYPEFULLY_API_KEY environment variable is required")
-
-    BASE_URL = "https://api.typefully.com"
-
-    @cached_property
-    def _client(self) -> httpx.Client:
-        return httpx.Client(
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-        )
 
     def _format_message(
         self,
@@ -140,24 +131,39 @@ class TypefullyPlugin(AutopubPlugin):
         social_set_id = self.config.social_set_id
         url = f"{self.BASE_URL}/v2/social-sets/{social_set_id}/drafts"
 
-        response = self._client.post(url, json=body)
+        data = json.dumps(body).encode()
+        request = Request(
+            url,
+            data=data,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
 
-        if response.status_code == 401:
-            raise AutopubException(
-                "Typefully authentication failed: invalid API key"
-            )
+        try:
+            urlopen(request)  # noqa: S310
+        except HTTPError as exc:
+            if exc.code == 401:
+                raise AutopubException(
+                    "Typefully authentication failed: invalid API key"
+                ) from exc
 
-        if response.status_code == 429:
-            raise AutopubException("Typefully rate limit exceeded, try again later")
+            if exc.code == 429:
+                raise AutopubException(
+                    "Typefully rate limit exceeded, try again later"
+                ) from exc
 
-        if not response.is_success:
             try:
-                detail = response.json().get("detail", response.text)
+                error_body = json.loads(exc.read())
+                detail = error_body.get("detail", str(exc))
             except Exception:
-                detail = response.text
+                detail = str(exc)
+
             raise AutopubException(
-                f"Typefully API error ({response.status_code}): {detail}"
-            )
+                f"Typefully API error ({exc.code}): {detail}"
+            ) from exc
 
     def post_publish(self, release_info: ReleaseInfo) -> None:
         body = self._build_request_body(release_info)

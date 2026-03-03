@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+import json
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
-import httpx
 import pytest
 
 from autopub.exceptions import AutopubException
@@ -40,18 +41,26 @@ def _plugin_with_config(
     return plugin
 
 
-def _mock_client(*, status_code: int = 200, json_body: dict | None = None) -> MagicMock:
-    mock = MagicMock(spec=httpx.Client)
-    response = MagicMock(spec=httpx.Response)
-    response.status_code = status_code
-    response.is_success = 200 <= status_code < 300
-    response.text = ""
-    if json_body is not None:
-        response.json.return_value = json_body
-    else:
-        response.json.return_value = {}
-    mock.post.return_value = response
-    return mock
+def _mock_urlopen(*, status_code: int = 200, body: dict | None = None):
+    if status_code >= 400:
+        error = HTTPError(
+            url="https://api.typefully.com/v2/social-sets/abc-123/drafts",
+            code=status_code,
+            msg="Error",
+            hdrs={},  # type: ignore[arg-type]
+            fp=None,
+        )
+        if body is not None:
+            error.read = MagicMock(return_value=json.dumps(body).encode())  # type: ignore[assignment]
+        else:
+            error.read = MagicMock(return_value=b"{}")  # type: ignore[assignment]
+        return MagicMock(side_effect=error)
+
+    mock_response = MagicMock()
+    mock_response.status = status_code
+    if body is not None:
+        mock_response.read.return_value = json.dumps(body).encode()
+    return MagicMock(return_value=mock_response)
 
 
 def test_missing_api_key_raises(monkeypatch) -> None:
@@ -61,40 +70,41 @@ def test_missing_api_key_raises(monkeypatch) -> None:
         TypefullyPlugin()
 
 
-def test_creates_draft_default_config(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_creates_draft_default_config(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(monkeypatch)
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    mock.post.assert_called_once()
-    url, kwargs = mock.post.call_args.args[0], mock.post.call_args.kwargs
-    body = kwargs["json"]
+    mock_urlopen.assert_called_once()
+    request = mock_urlopen.call_args.args[0]
 
-    assert url == "https://api.typefully.com/v2/social-sets/abc-123/drafts"
+    assert request.full_url == "https://api.typefully.com/v2/social-sets/abc-123/drafts"
+    assert request.get_header("Authorization") == "Bearer test-api-key"
+
+    body = json.loads(request.data)
     assert len(body["platforms"]) == 1
     assert body["platforms"][0]["platform"] == "x"
     assert "1.0.0" in body["platforms"][0]["text"]
     assert "publish_at" not in body
 
 
-def test_multiple_platforms(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_multiple_platforms(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={"platforms": ["x", "linkedin", "bluesky"]},
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     platform_names = [p["platform"] for p in body["platforms"]]
     assert platform_names == ["x", "linkedin", "bluesky"]
 
 
-def test_per_platform_templates(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_per_platform_templates(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={
@@ -105,12 +115,10 @@ def test_per_platform_templates(monkeypatch) -> None:
             },
         },
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     x_post = body["platforms"][0]
     linkedin_post = body["platforms"][1]
 
@@ -118,7 +126,8 @@ def test_per_platform_templates(monkeypatch) -> None:
     assert linkedin_post["text"] == "Long post about 1.0.0\n\nBug fixes and improvements"
 
 
-def test_platform_template_fallback(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_platform_template_fallback(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={
@@ -127,12 +136,10 @@ def test_platform_template_fallback(monkeypatch) -> None:
             "project-name": "MyLib",
         },
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     x_post = body["platforms"][0]
     linkedin_post = body["platforms"][1]
 
@@ -140,7 +147,8 @@ def test_platform_template_fallback(monkeypatch) -> None:
     assert linkedin_post["text"] == "MyLib 1.0.0 has been released!\n\nBug fixes and improvements"
 
 
-def test_custom_message_template(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_custom_message_template(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={
@@ -148,16 +156,15 @@ def test_custom_message_template(monkeypatch) -> None:
             "project-name": "Strawberry",
         },
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     assert body["platforms"][0]["text"] == "v1.0.0 (patch) is out!"
 
 
-def test_message_truncation(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_message_truncation(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={
@@ -166,46 +173,43 @@ def test_message_truncation(monkeypatch) -> None:
             "truncation-suffix": "…",
         },
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     text = body["platforms"][0]["text"]
     assert len(text) <= 20
     assert text.endswith("…")
 
 
-def test_publish_mode_now(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_publish_mode_now(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={"publish-mode": "now"},
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     assert body["publish_at"] == "now"
 
 
-def test_publish_mode_next_free_slot(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_publish_mode_next_free_slot(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={"publish-mode": "next-free-slot"},
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     assert body["publish_at"] == "next-free-slot"
 
 
-def test_publish_mode_scheduled(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_publish_mode_scheduled(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={
@@ -213,12 +217,10 @@ def test_publish_mode_scheduled(monkeypatch) -> None:
             "publish-at": "2026-01-15T10:00:00Z",
         },
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     assert body["publish_at"] == "2026-01-15T10:00:00Z"
 
 
@@ -227,74 +229,71 @@ def test_scheduled_without_publish_at_raises(monkeypatch) -> None:
         monkeypatch,
         config={"publish-mode": "scheduled"},
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     with pytest.raises(AutopubException, match="publish-at is required"):
         plugin.post_publish(_release_info())
 
 
-def test_tags_in_request(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_tags_in_request(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={"tags": ["release", "oss"]},
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     assert body["tags"] == ["release", "oss"]
 
 
-def test_dry_run_no_api_call(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_dry_run_no_api_call(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={"dry-run": True},
     )
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info())
 
-    mock.post.assert_not_called()
+    mock_urlopen.assert_not_called()
 
 
-def test_api_401_raises(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_api_401_raises(mock_urlopen, monkeypatch) -> None:
+    mock_urlopen.side_effect = _mock_urlopen(status_code=401).side_effect
     plugin = _plugin_with_config(monkeypatch)
-    mock = _mock_client(status_code=401)
-    plugin.__dict__["_client"] = mock
 
     with pytest.raises(AutopubException, match="authentication failed"):
         plugin.post_publish(_release_info())
 
 
-def test_api_429_raises(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_api_429_raises(mock_urlopen, monkeypatch) -> None:
+    mock_urlopen.side_effect = _mock_urlopen(status_code=429).side_effect
     plugin = _plugin_with_config(monkeypatch)
-    mock = _mock_client(status_code=429)
-    plugin.__dict__["_client"] = mock
 
     with pytest.raises(AutopubException, match="rate limit"):
         plugin.post_publish(_release_info())
 
 
-def test_api_generic_error(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_api_generic_error(mock_urlopen, monkeypatch) -> None:
+    mock_urlopen.side_effect = _mock_urlopen(
+        status_code=500, body={"detail": "Internal server error"}
+    ).side_effect
     plugin = _plugin_with_config(monkeypatch)
-    mock = _mock_client(status_code=500, json_body={"detail": "Internal server error"})
-    plugin.__dict__["_client"] = mock
 
     with pytest.raises(AutopubException, match="Internal server error"):
         plugin.post_publish(_release_info())
 
 
-def test_none_version_handled(monkeypatch) -> None:
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_none_version_handled(mock_urlopen, monkeypatch) -> None:
     plugin = _plugin_with_config(monkeypatch)
-    mock = _mock_client()
-    plugin.__dict__["_client"] = mock
 
     plugin.post_publish(_release_info(version=None))
 
-    body = mock.post.call_args.kwargs["json"]
+    body = json.loads(mock_urlopen.call_args.args[0].data)
     text = body["platforms"][0]["text"]
     assert "None" not in text
