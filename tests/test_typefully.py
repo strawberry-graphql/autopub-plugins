@@ -72,7 +72,7 @@ def test_creates_draft_default_config(monkeypatch) -> None:
     url, kwargs = mock.post.call_args.args[0], mock.post.call_args.kwargs
     body = kwargs["json"]
 
-    assert url == "/v2/social-sets/abc-123/drafts"
+    assert url == "https://api.typefully.com/v2/social-sets/abc-123/drafts"
     assert len(body["platforms"]) == 1
     assert body["platforms"][0]["platform"] == "x"
     assert "1.0.0" in body["platforms"][0]["text"]

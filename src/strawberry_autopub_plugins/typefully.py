@@ -49,10 +49,11 @@ class TypefullyPlugin(AutopubPlugin):
         if not self.api_key:
             raise AutopubException("TYPEFULLY_API_KEY environment variable is required")
 
+    BASE_URL = "https://api.typefully.com"
+
     @cached_property
     def _client(self) -> httpx.Client:
         return httpx.Client(
-            base_url="https://api.typefully.com",
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
@@ -137,7 +138,7 @@ class TypefullyPlugin(AutopubPlugin):
 
     def _create_draft(self, body: dict[str, object]) -> None:
         social_set_id = self.config.social_set_id
-        url = f"/v2/social-sets/{social_set_id}/drafts"
+        url = f"{self.BASE_URL}/v2/social-sets/{social_set_id}/drafts"
 
         response = self._client.post(url, json=body)
 
