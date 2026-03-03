@@ -83,8 +83,8 @@ class TypefullyPlugin(AutopubPlugin):
     def _build_platforms_payload(
         self,
         release_info: ReleaseInfo,
-    ) -> list[dict[str, object]]:
-        platforms = []
+    ) -> dict[str, object]:
+        platforms: dict[str, object] = {}
 
         for platform in self.config.platforms:
             template = self.config.platform_templates.get(
@@ -92,7 +92,10 @@ class TypefullyPlugin(AutopubPlugin):
                 self.config.message_template,
             )
             message = self._format_message(template, release_info)
-            platforms.append({"platform": platform, "text": message})
+            platforms[platform] = {
+                "enabled": True,
+                "posts": [{"text": message}],
+            }
 
         return platforms
 

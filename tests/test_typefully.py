@@ -63,6 +63,10 @@ def _mock_urlopen(*, status_code: int = 200, body: dict | None = None):
     return MagicMock(return_value=mock_response)
 
 
+def _get_request_body(mock_urlopen) -> dict:
+    return json.loads(mock_urlopen.call_args.args[0].data)
+
+
 def test_missing_api_key_raises(monkeypatch) -> None:
     monkeypatch.delenv("TYPEFULLY_API_KEY", raising=False)
 
@@ -82,10 +86,10 @@ def test_creates_draft_default_config(mock_urlopen, monkeypatch) -> None:
     assert request.full_url == "https://api.typefully.com/v2/social-sets/abc-123/drafts"
     assert request.get_header("Authorization") == "Bearer test-api-key"
 
-    body = json.loads(request.data)
-    assert len(body["platforms"]) == 1
-    assert body["platforms"][0]["platform"] == "x"
-    assert "1.0.0" in body["platforms"][0]["text"]
+    body = _get_request_body(mock_urlopen)
+    assert "x" in body["platforms"]
+    assert body["platforms"]["x"]["enabled"] is True
+    assert "1.0.0" in body["platforms"]["x"]["posts"][0]["text"]
     assert "publish_at" not in body
 
 
@@ -98,9 +102,10 @@ def test_multiple_platforms(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info())
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
-    platform_names = [p["platform"] for p in body["platforms"]]
-    assert platform_names == ["x", "linkedin", "bluesky"]
+    body = _get_request_body(mock_urlopen)
+    assert set(body["platforms"].keys()) == {"x", "linkedin", "bluesky"}
+    for platform in body["platforms"].values():
+        assert platform["enabled"] is True
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")
@@ -118,12 +123,12 @@ def test_per_platform_templates(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info())
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
-    x_post = body["platforms"][0]
-    linkedin_post = body["platforms"][1]
-
-    assert x_post["text"] == "Short: 1.0.0"
-    assert linkedin_post["text"] == "Long post about 1.0.0\n\nBug fixes and improvements"
+    body = _get_request_body(mock_urlopen)
+    assert body["platforms"]["x"]["posts"][0]["text"] == "Short: 1.0.0"
+    assert (
+        body["platforms"]["linkedin"]["posts"][0]["text"]
+        == "Long post about 1.0.0\n\nBug fixes and improvements"
+    )
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")
@@ -139,12 +144,12 @@ def test_platform_template_fallback(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info())
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
-    x_post = body["platforms"][0]
-    linkedin_post = body["platforms"][1]
-
-    assert x_post["text"] == "Custom X: 1.0.0"
-    assert linkedin_post["text"] == "MyLib 1.0.0 has been released!\n\nBug fixes and improvements"
+    body = _get_request_body(mock_urlopen)
+    assert body["platforms"]["x"]["posts"][0]["text"] == "Custom X: 1.0.0"
+    assert (
+        body["platforms"]["linkedin"]["posts"][0]["text"]
+        == "MyLib 1.0.0 has been released!\n\nBug fixes and improvements"
+    )
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")
@@ -159,8 +164,8 @@ def test_custom_message_template(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info())
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
-    assert body["platforms"][0]["text"] == "v1.0.0 (patch) is out!"
+    body = _get_request_body(mock_urlopen)
+    assert body["platforms"]["x"]["posts"][0]["text"] == "v1.0.0 (patch) is out!"
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")
@@ -176,8 +181,8 @@ def test_message_truncation(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info())
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
-    text = body["platforms"][0]["text"]
+    body = _get_request_body(mock_urlopen)
+    text = body["platforms"]["x"]["posts"][0]["text"]
     assert len(text) <= 20
     assert text.endswith("…")
 
@@ -191,7 +196,7 @@ def test_publish_mode_now(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info())
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
+    body = _get_request_body(mock_urlopen)
     assert body["publish_at"] == "now"
 
 
@@ -204,7 +209,7 @@ def test_publish_mode_next_free_slot(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info())
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
+    body = _get_request_body(mock_urlopen)
     assert body["publish_at"] == "next-free-slot"
 
 
@@ -220,7 +225,7 @@ def test_publish_mode_scheduled(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info())
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
+    body = _get_request_body(mock_urlopen)
     assert body["publish_at"] == "2026-01-15T10:00:00Z"
 
 
@@ -243,7 +248,7 @@ def test_tags_in_request(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info())
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
+    body = _get_request_body(mock_urlopen)
     assert body["tags"] == ["release", "oss"]
 
 
@@ -294,6 +299,6 @@ def test_none_version_handled(mock_urlopen, monkeypatch) -> None:
 
     plugin.post_publish(_release_info(version=None))
 
-    body = json.loads(mock_urlopen.call_args.args[0].data)
-    text = body["platforms"][0]["text"]
+    body = _get_request_body(mock_urlopen)
+    text = body["platforms"]["x"]["posts"][0]["text"]
     assert "None" not in text
