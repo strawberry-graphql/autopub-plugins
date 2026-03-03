@@ -38,6 +38,13 @@ class TypefullyConfig(BaseModel):
     dry_run: bool = Field(default=False, validation_alias="dry-run")
 
 
+def _autopub_error(message: str) -> AutopubException:
+    """Create an AutopubException with .message set for CLI compatibility."""
+    exc = AutopubException(message)
+    exc.message = message  # type: ignore[attr-defined]
+    return exc
+
+
 class TypefullyPlugin(AutopubPlugin):
     """Announce releases on social media via Typefully."""
 
@@ -49,7 +56,7 @@ class TypefullyPlugin(AutopubPlugin):
         self.api_key = os.environ.get("TYPEFULLY_API_KEY")
 
         if not self.api_key:
-            raise AutopubException("TYPEFULLY_API_KEY environment variable is required")
+            raise _autopub_error("TYPEFULLY_API_KEY environment variable is required")
 
     def _format_message(
         self,
@@ -103,7 +110,7 @@ class TypefullyPlugin(AutopubPlugin):
 
         if mode == "scheduled":
             if not self.config.publish_at:
-                raise AutopubException(
+                raise _autopub_error(
                     "publish-at is required when publish-mode is 'scheduled'"
                 )
             return self.config.publish_at
@@ -146,12 +153,12 @@ class TypefullyPlugin(AutopubPlugin):
             urlopen(request)  # noqa: S310
         except HTTPError as exc:
             if exc.code == 401:
-                raise AutopubException(
+                raise _autopub_error(
                     "Typefully authentication failed: invalid API key"
                 ) from exc
 
             if exc.code == 429:
-                raise AutopubException(
+                raise _autopub_error(
                     "Typefully rate limit exceeded, try again later"
                 ) from exc
 
@@ -161,7 +168,7 @@ class TypefullyPlugin(AutopubPlugin):
             except Exception:
                 detail = str(exc)
 
-            raise AutopubException(
+            raise _autopub_error(
                 f"Typefully API error ({exc.code}): {detail}"
             ) from exc
 
