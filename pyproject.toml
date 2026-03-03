@@ -14,6 +14,7 @@ authors = [
 ]
 dependencies = [
   "autopub>=1.0.0a58,<2.0.0",
+  "httpx>=0.27.0",
 ]
 
 [dependency-groups]
