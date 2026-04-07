@@ -1,0 +1,26 @@
+name: PR Check
+
+on:
+  pull_request_target:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.number }}/merge
+          sparse-checkout: |
+            RELEASE.md
+            pyproject.toml
+          sparse-checkout-cone-mode: false
+
+      - uses: autopub/autopub-action@v1.1.0
+        with:
+          command: check
+          github-token: ${{ secrets.GITHUB_TOKEN }}

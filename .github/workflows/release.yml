@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      has-release: ${{ steps.check.outputs.has-release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: autopub/autopub-action@v1.1.0
+        id: check
+        with:
+          command: check
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    needs: check
+    if: needs.check.outputs.has-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: autopub/autopub-action@v1.1.0
+        with:
+          command: prepare
+
+      - uses: autopub/autopub-action@v1.1.0
+        with:
+          command: build
+
+      - uses: autopub/autopub-action@v1.1.0
+        with:
+          command: publish
+          github-token: ${{ github.token }}
