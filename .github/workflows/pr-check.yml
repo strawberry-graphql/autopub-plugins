@@ -20,7 +20,7 @@ jobs:
             pyproject.toml
           sparse-checkout-cone-mode: false
 
-      - uses: autopub/autopub-action@v1.1.0
+      - uses: autopub/autopub-action@v1.1.1
         with:
           command: check
           github-token: ${{ secrets.GITHUB_TOKEN }}

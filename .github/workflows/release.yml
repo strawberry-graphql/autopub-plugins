@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: autopub/autopub-action@v1.1.0
+      - uses: autopub/autopub-action@v1.1.1
         id: check
         with:
           command: check
@@ -33,15 +33,15 @@ jobs:
           fetch-depth: 0
           token: ${{ github.token }}
 
-      - uses: autopub/autopub-action@v1.1.0
+      - uses: autopub/autopub-action@v1.1.1
         with:
           command: prepare
 
-      - uses: autopub/autopub-action@v1.1.0
+      - uses: autopub/autopub-action@v1.1.1
         with:
           command: build
 
-      - uses: autopub/autopub-action@v1.1.0
+      - uses: autopub/autopub-action@v1.1.1
         with:
           command: publish
           github-token: ${{ github.token }}
