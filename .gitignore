@@ -2,4 +2,5 @@
 .pytest_cache/
 __pycache__/
 *.pyc
-.autopub/
+# Keep `.autopub/` unignored for now so `autopub publish` can commit
+# tracked release changes without tripping over its own `git add` pathspec.
