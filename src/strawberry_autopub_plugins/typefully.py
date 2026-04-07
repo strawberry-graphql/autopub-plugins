@@ -55,11 +55,12 @@ class TypefullyPlugin(AutopubPlugin):
     Config = TypefullyConfig
     BASE_URL = "https://api.typefully.com"
 
-    def __init__(self) -> None:
-        self.api_key = os.environ.get("TYPEFULLY_API_KEY")
-
-        if not self.api_key:
+    @property
+    def api_key(self) -> str:
+        api_key = os.environ.get("TYPEFULLY_API_KEY")
+        if not api_key:
             raise _autopub_error("TYPEFULLY_API_KEY environment variable is required")
+        return api_key
 
     def _format_message(
         self,
@@ -197,16 +198,16 @@ class TypefullyPlugin(AutopubPlugin):
             ) from exc
 
     def post_publish(self, release_info: ReleaseInfo) -> None:
-        if not self.config.social_set_id:
-            raise _autopub_error(
-                "social-set-id config or TYPEFULLY_SOCIAL_SET_ID environment variable is required"
-            )
-
         body = self._build_request_body(release_info)
 
         if self.config.dry_run:
             print(f"[typefully] dry run — request body: {body}")
             return
+
+        if not self.config.social_set_id:
+            raise _autopub_error(
+                "social-set-id config or TYPEFULLY_SOCIAL_SET_ID environment variable is required"
+            )
 
         self._create_draft(body)
 

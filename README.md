@@ -44,7 +44,7 @@ Plugin path:
 strawberry_autopub_plugins.invite_contributors:InviteContributorsPlugin
 ```
 
-Required environment variables:
+Environment variables used when the plugin needs to call the GitHub API:
 
 - `GITHUB_TOKEN`
 - `GITHUB_REPOSITORY`
@@ -86,7 +86,7 @@ Plugin path:
 strawberry_autopub_plugins.typefully:TypefullyPlugin
 ```
 
-Required environment variables:
+Environment variables used when the plugin needs to create a Typefully draft:
 
 - `TYPEFULLY_API_KEY`
 
@@ -95,6 +95,7 @@ Optional environment variables:
 - `TYPEFULLY_SOCIAL_SET_ID`
 
 You can provide the social set ID either through `social-set-id` in config or `TYPEFULLY_SOCIAL_SET_ID`.
+In `dry-run` mode, the plugin can render the request body without requiring either value.
 
 Example config:
 

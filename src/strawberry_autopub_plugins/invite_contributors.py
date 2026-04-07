@@ -48,15 +48,19 @@ class InviteContributorsPlugin(AutopubPlugin):
     id = "invite_contributors"
     Config = InviteContributorsConfig
 
-    def __init__(self) -> None:
-        self.github_token = os.environ.get("GITHUB_TOKEN")
-        self.repository_name = os.environ.get("GITHUB_REPOSITORY")
-
-        if not self.github_token:
+    @property
+    def github_token(self) -> str:
+        github_token = os.environ.get("GITHUB_TOKEN")
+        if not github_token:
             raise AutopubException("GITHUB_TOKEN environment variable is required")
+        return github_token
 
-        if not self.repository_name:
+    @property
+    def repository_name(self) -> str:
+        repository_name = os.environ.get("GITHUB_REPOSITORY")
+        if not repository_name:
             raise AutopubException("GITHUB_REPOSITORY environment variable is required")
+        return repository_name
 
     @cached_property
     def _github(self) -> Github:

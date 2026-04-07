@@ -72,8 +72,24 @@ def _get_request_body(mock_urlopen) -> dict:
 def test_missing_api_key_raises(monkeypatch) -> None:
     monkeypatch.delenv("TYPEFULLY_API_KEY", raising=False)
 
+    plugin = TypefullyPlugin()
+    plugin.validate_config({"plugin_config": {"typefully": {"social-set-id": "abc-123"}}})
+
     with pytest.raises(AutopubException, match="TYPEFULLY_API_KEY"):
-        TypefullyPlugin()
+        plugin.post_publish(_release_info())
+
+
+def test_dry_run_does_not_require_api_key_or_social_set_id(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("TYPEFULLY_API_KEY", raising=False)
+    monkeypatch.delenv("TYPEFULLY_SOCIAL_SET_ID", raising=False)
+
+    plugin = TypefullyPlugin()
+    plugin.validate_config({"plugin_config": {"typefully": {"dry-run": True}}})
+
+    plugin.post_publish(_release_info())
+
+    output = capsys.readouterr().out
+    assert "[typefully] dry run" in output
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")

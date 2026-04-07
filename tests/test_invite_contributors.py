@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from github.GithubException import GithubException
 
+from autopub.exceptions import AutopubException
 from autopub.types import ReleaseInfo
 from strawberry_autopub_plugins.invite_contributors import (
     KNOWN_BOT_EXCLUSIONS,
@@ -144,3 +146,21 @@ def test_default_config_skips_known_bot_usernames(monkeypatch) -> None:
     assert plugin.config.skip_bots is True
     assert plugin.config.exclude_users == KNOWN_BOT_EXCLUSIONS
     assert filtered == ["author"]
+
+
+def test_missing_github_env_is_only_checked_when_needed(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+
+    plugin = InviteContributorsPlugin()
+    plugin.validate_config({})
+
+    plugin.pull_request = None
+    plugin.post_publish(_release_info())
+
+    plugin.pull_request = MagicMock()
+    plugin.pull_request.user.login = "author"
+    plugin.pull_request.get_commits.return_value = []
+
+    with pytest.raises(AutopubException, match="GITHUB_TOKEN"):
+        plugin.post_publish(_release_info())
