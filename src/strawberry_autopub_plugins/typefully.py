@@ -83,16 +83,34 @@ class TypefullyPlugin(AutopubPlugin):
 
         return message
 
+    def _frontmatter_message_template(self, release_info: ReleaseInfo) -> str | None:
+        additional_info = release_info.additional_info
+        template = additional_info.get("social_message")
+
+        if template is None:
+            template = additional_info.get("social-message")
+
+        if template is None:
+            return None
+
+        if not isinstance(template, str):
+            raise _autopub_error("social_message frontmatter value must be a string")
+
+        if not template.strip():
+            raise _autopub_error("social_message frontmatter value cannot be empty")
+
+        return template
+
     def _build_platforms_payload(
         self,
         release_info: ReleaseInfo,
     ) -> dict[str, object]:
         platforms: dict[str, object] = {}
+        frontmatter_template = self._frontmatter_message_template(release_info)
 
         for platform in self.config.platforms:
-            template = self.config.platform_templates.get(
-                platform,
-                self.config.message_template,
+            template = frontmatter_template or self.config.platform_templates.get(
+                platform, self.config.message_template
             )
             message = self._format_message(template, release_info)
             platforms[platform] = {

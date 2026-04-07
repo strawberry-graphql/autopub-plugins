@@ -15,10 +15,12 @@ def _release_info(
     *,
     version: str | None = "1.0.0",
     previous_version: str | None = "0.9.0",
+    additional_info: dict | None = None,
 ) -> ReleaseInfo:
     return ReleaseInfo(
         release_type="patch",
         release_notes="Bug fixes and improvements",
+        additional_info=additional_info or {},
         version=version,
         previous_version=previous_version,
     )
@@ -166,6 +168,48 @@ def test_custom_message_template(mock_urlopen, monkeypatch) -> None:
 
     body = _get_request_body(mock_urlopen)
     assert body["platforms"]["x"]["posts"][0]["text"] == "v1.0.0 (patch) is out!"
+
+
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_frontmatter_social_message_overrides_templates(mock_urlopen, monkeypatch) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x", "linkedin"],
+            "message-template": "Default {version}",
+            "platform-templates": {"linkedin": "LinkedIn {version}"},
+            "project-name": "Strawberry",
+        },
+    )
+
+    plugin.post_publish(
+        _release_info(
+            additional_info={
+                "social_message": "{project_name} {version} shipped\n\n{release_notes}"
+            }
+        )
+    )
+
+    body = _get_request_body(mock_urlopen)
+    assert (
+        body["platforms"]["x"]["posts"][0]["text"]
+        == "Strawberry 1.0.0 shipped\n\nBug fixes and improvements"
+    )
+    assert (
+        body["platforms"]["linkedin"]["posts"][0]["text"]
+        == "Strawberry 1.0.0 shipped\n\nBug fixes and improvements"
+    )
+
+
+def test_frontmatter_social_message_must_be_a_string(monkeypatch) -> None:
+    plugin = _plugin_with_config(monkeypatch)
+
+    with pytest.raises(AutopubException, match="social_message frontmatter value must be a string"):
+        plugin.post_publish(
+            _release_info(
+                additional_info={"social_message": ["not", "a", "string"]},
+            )
+        )
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")
