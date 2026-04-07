@@ -14,7 +14,10 @@ from autopub.types import ReleaseInfo
 
 
 class TypefullyConfig(BaseModel):
-    social_set_id: str = Field(validation_alias="social-set-id")
+    social_set_id: str = Field(
+        default_factory=lambda: os.environ.get("TYPEFULLY_SOCIAL_SET_ID", ""),
+        validation_alias="social-set-id",
+    )
     platforms: list[Literal["x", "linkedin", "threads", "bluesky", "mastodon"]] = Field(
         default_factory=lambda: ["x"],
     )
@@ -176,6 +179,11 @@ class TypefullyPlugin(AutopubPlugin):
             ) from exc
 
     def post_publish(self, release_info: ReleaseInfo) -> None:
+        if not self.config.social_set_id:
+            raise _autopub_error(
+                "social-set-id config or TYPEFULLY_SOCIAL_SET_ID environment variable is required"
+            )
+
         body = self._build_request_body(release_info)
 
         if self.config.dry_run:
