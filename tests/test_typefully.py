@@ -8,6 +8,7 @@ import pytest
 
 from autopub.exceptions import AutopubException
 from autopub.types import ReleaseInfo
+from pydantic import ValidationError
 from strawberry_autopub_plugins.typefully import TypefullyPlugin
 
 
@@ -15,11 +16,12 @@ def _release_info(
     *,
     version: str | None = "1.0.0",
     previous_version: str | None = "0.9.0",
+    release_notes: str | None = "Bug fixes and improvements",
     additional_info: dict | None = None,
 ) -> ReleaseInfo:
     return ReleaseInfo(
         release_type="patch",
-        release_notes="Bug fixes and improvements",
+        release_notes=release_notes,
         additional_info=additional_info or {},
         version=version,
         previous_version=previous_version,
@@ -217,15 +219,187 @@ def test_frontmatter_social_message_overrides_templates(mock_urlopen, monkeypatc
     )
 
 
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_frontmatter_social_messages_override_individual_platforms(
+    mock_urlopen, monkeypatch
+) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x", "linkedin"],
+            "project-name": "Strawberry",
+        },
+    )
+
+    plugin.post_publish(
+        _release_info(
+            additional_info={
+                "social_message": "{project_name} {version} shipped",
+                "social_messages": {
+                    "linkedin": (
+                        "{project_name} {version} shipped with more LinkedIn detail"
+                    ),
+                },
+            }
+        )
+    )
+
+    body = _get_request_body(mock_urlopen)
+    assert body["platforms"]["x"]["posts"][0]["text"] == "Strawberry 1.0.0 shipped"
+    assert (
+        body["platforms"]["linkedin"]["posts"][0]["text"]
+        == "Strawberry 1.0.0 shipped with more LinkedIn detail"
+    )
+
+
 def test_frontmatter_social_message_must_be_a_string(monkeypatch) -> None:
     plugin = _plugin_with_config(monkeypatch)
 
-    with pytest.raises(AutopubException, match="social_message frontmatter value must be a string"):
+    with pytest.raises(
+        AutopubException,
+        match="social_message frontmatter value must be a string",
+    ):
         plugin.post_publish(
             _release_info(
                 additional_info={"social_message": ["not", "a", "string"]},
             )
         )
+
+
+def test_frontmatter_social_messages_must_be_a_mapping(monkeypatch) -> None:
+    plugin = _plugin_with_config(monkeypatch)
+
+    with pytest.raises(
+        AutopubException, match="social_messages frontmatter value must be a mapping"
+    ):
+        plugin.post_publish(
+            _release_info(
+                additional_info={"social_messages": ["not", "a", "mapping"]},
+            )
+        )
+
+
+def test_frontmatter_social_messages_reject_unknown_platform(monkeypatch) -> None:
+    plugin = _plugin_with_config(monkeypatch)
+
+    with pytest.raises(
+        AutopubException,
+        match="social_messages frontmatter contains unsupported Typefully platform "
+        "'twitter'",
+    ):
+        plugin.post_publish(
+            _release_info(
+                additional_info={
+                    "social_messages": {
+                        "twitter": "Strawberry 1.0.0 is out",
+                    },
+                },
+            )
+        )
+
+
+def test_required_social_message_accepts_shared_social_message(monkeypatch) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x", "linkedin"],
+            "require-social-message": True,
+        },
+    )
+
+    plugin.validate_release_notes(
+        _release_info(
+            additional_info={
+                "social_message": "{project_name} {version} shipped",
+            },
+        )
+    )
+
+
+def test_required_social_message_requires_each_configured_platform(monkeypatch) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x", "linkedin"],
+            "require-social-message": True,
+        },
+    )
+
+    with pytest.raises(
+        AutopubException,
+        match="Typefully social_messages frontmatter is required for: linkedin",
+    ):
+        plugin.validate_release_notes(
+            _release_info(
+                additional_info={
+                    "social_messages": {
+                        "x": "Short release post",
+                    },
+                },
+            )
+        )
+
+
+def test_required_social_platforms_allow_subset(monkeypatch) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x", "linkedin", "mastodon"],
+            "require-social-message": True,
+            "required-social-platforms": ["x", "linkedin"],
+        },
+    )
+
+    plugin.validate_release_notes(
+        _release_info(
+            additional_info={
+                "social_messages": {
+                    "x": "Short release post",
+                    "linkedin": "Longer release post",
+                },
+            },
+        )
+    )
+
+
+def test_release_note_lead_can_be_required(monkeypatch) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={"require-release-note-lead": True},
+    )
+
+    plugin.validate_release_notes(
+        _release_info(release_notes="This release fixes schema output.")
+    )
+
+
+def test_release_note_lead_rejects_implementation_first_copy(monkeypatch) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={"require-release-note-lead": True},
+    )
+
+    with pytest.raises(
+        AutopubException,
+        match="Release notes must start with an approved user-facing lead",
+    ):
+        plugin.validate_release_notes(
+            _release_info(release_notes="Refactor the internal schema printer.")
+        )
+
+
+@pytest.mark.parametrize("release_notes", [None, "", "   "])
+def test_release_note_lead_requires_release_notes(monkeypatch, release_notes) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={"require-release-note-lead": True},
+    )
+
+    with pytest.raises(
+        AutopubException,
+        match="Release notes are required when require-release-note-lead is enabled",
+    ):
+        plugin.validate_release_notes(_release_info(release_notes=release_notes))
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")
@@ -245,6 +419,187 @@ def test_message_truncation(mock_urlopen, monkeypatch) -> None:
     text = body["platforms"]["x"]["posts"][0]["text"]
     assert len(text) <= 20
     assert text.endswith("…")
+
+
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_message_truncation_very_small_limit_uses_suffix_slice(
+    mock_urlopen, monkeypatch
+) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "message-template": "{release_notes}",
+            "platform-max-lengths": {
+                "x": 2,
+            },
+        },
+    )
+
+    plugin.post_publish(_release_info(release_notes="word " * 20))
+
+    body = _get_request_body(mock_urlopen)
+    text = body["platforms"]["x"]["posts"][0]["text"]
+    assert text == ".."
+
+
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+@pytest.mark.parametrize("invalid_length", [0, -1])
+def test_platform_max_length_must_be_positive_on_publish(
+    mock_urlopen, monkeypatch, invalid_length
+) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "message-template": "{release_notes}",
+            "platform-max-lengths": {
+                "x": invalid_length,
+            },
+        },
+    )
+
+    with pytest.raises(
+        AutopubException,
+        match=r"Maximum length for Typefully platform 'x' must be positive",
+    ):
+        plugin.post_publish(_release_info(release_notes="word " * 20))
+
+    mock_urlopen.assert_not_called()
+
+
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_message_truncation_respects_word_boundary(
+    mock_urlopen, monkeypatch
+) -> None:
+    message = (
+        "Strawberry is a GraphQL library for Python that makes it easy "
+        "to build APIs."
+    )
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "message-template": "{release_notes}",
+            "max-length": 50,
+        },
+    )
+
+    plugin.post_publish(_release_info(release_notes=message))
+
+    body = _get_request_body(mock_urlopen)
+    text = body["platforms"]["x"]["posts"][0]["text"]
+    visible = text.removesuffix("...")
+
+    assert len(text) <= 50
+    assert text.endswith("...")
+    assert message.startswith(visible)
+    assert message[len(visible)] == " "
+
+
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_default_message_truncation_is_platform_specific(
+    mock_urlopen, monkeypatch
+) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x", "linkedin"],
+            "message-template": "{release_notes}",
+        },
+    )
+
+    plugin.post_publish(_release_info(release_notes="word " * 100))
+
+    body = _get_request_body(mock_urlopen)
+    x_text = body["platforms"]["x"]["posts"][0]["text"]
+    linkedin_text = body["platforms"]["linkedin"]["posts"][0]["text"]
+
+    assert len(x_text) <= 280
+    assert x_text.endswith("...")
+    assert linkedin_text == ("word " * 100).strip()
+
+
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_platform_max_lengths_override_defaults(mock_urlopen, monkeypatch) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x", "linkedin"],
+            "message-template": "{release_notes}",
+            "platform-max-lengths": {
+                "linkedin": 40,
+            },
+        },
+    )
+
+    plugin.post_publish(_release_info(release_notes="word " * 100))
+
+    body = _get_request_body(mock_urlopen)
+    x_text = body["platforms"]["x"]["posts"][0]["text"]
+    linkedin_text = body["platforms"]["linkedin"]["posts"][0]["text"]
+
+    assert len(x_text) <= 280
+    assert len(linkedin_text) <= 40
+    assert linkedin_text.endswith("...")
+
+
+def test_platform_max_lengths_reject_unknown_platform(monkeypatch) -> None:
+    with pytest.raises(
+        ValidationError,
+        match="platform-max-lengths contains unsupported Typefully platform 'twitter'",
+    ):
+        _plugin_with_config(
+            monkeypatch,
+            config={
+                "platform-max-lengths": {
+                    "twitter": 280,
+                },
+            },
+        )
+
+
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_release_notes_variable_is_social_text(mock_urlopen, monkeypatch) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={"message-template": "{release_notes}"},
+    )
+
+    plugin.post_publish(
+        _release_info(
+            release_notes=(
+                "See [GraphQL over SSE](https://example.com/protocol.md) and "
+                "enable `GRAPHQL_SSE_PROTOCOL`."
+            )
+        )
+    )
+
+    body = _get_request_body(mock_urlopen)
+    text = body["platforms"]["x"]["posts"][0]["text"]
+
+    assert "[GraphQL over SSE]" not in text
+    assert "`GRAPHQL_SSE_PROTOCOL`" not in text
+    assert "GraphQL over SSE (https://example.com/protocol.md)" in text
+    assert "GRAPHQL_SSE_PROTOCOL" in text
+
+
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_release_notes_markdown_variable_preserves_markdown(
+    mock_urlopen, monkeypatch
+) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={"message-template": "{release_notes_markdown}"},
+    )
+
+    plugin.post_publish(
+        _release_info(
+            release_notes="See [GraphQL over SSE](https://example.com/protocol.md)."
+        )
+    )
+
+    body = _get_request_body(mock_urlopen)
+    text = body["platforms"]["x"]["posts"][0]["text"]
+
+    assert text == "See [GraphQL over SSE](https://example.com/protocol.md)."
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")
