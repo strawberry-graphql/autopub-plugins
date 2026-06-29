@@ -107,13 +107,18 @@ project-name = "Strawberry"
 message-template = "{project_name} {version} has been released!\n\n{release_notes}"
 publish-mode = "draft"
 tags = ["release", "python"]
-max-length = 280
+require-social-message = true
+required-social-platforms = ["x", "linkedin"]
+require-release-note-lead = true
 truncation-suffix = "..."
 dry-run = false
 
 [tool.autopub.plugin_config.typefully.platform-templates]
 x = "{project_name} {version} is out now.\n\n{release_notes}"
 linkedin = "{project_name} {version} has been released.\n\n{release_notes}"
+
+[tool.autopub.plugin_config.typefully.platform-max-lengths]
+linkedin = 3000
 ```
 
 Options:
@@ -126,7 +131,12 @@ Options:
 - `publish-mode`: One of `draft`, `now`, `next-free-slot`, or `scheduled`. Default: `draft`.
 - `publish-at`: Required when `publish-mode = "scheduled"`.
 - `tags`: Optional Typefully tags to attach to the draft.
-- `max-length`: Maximum post length before truncation. Default: `280`.
+- `require-social-message`: Require release notes to include `social_message` or `social_messages` frontmatter before publishing. Default: `false`.
+- `required-social-platforms`: Platforms that must have `social_messages` entries when `require-social-message` is enabled. Defaults to all configured `platforms`.
+- `require-release-note-lead`: Require release notes to start with an approved user-facing lead. Default: `false`.
+- `release-note-leads`: Approved release note prefixes. Defaults to `This release adds ` and `This release fixes `.
+- `max-length`: Optional maximum post length before truncation for all platforms.
+- `platform-max-lengths`: Per-platform maximum post lengths. Defaults are `x = 280`, `linkedin = 3000`, `threads = 500`, `bluesky = 300`, and `mastodon = 500`.
 - `truncation-suffix`: Suffix appended after truncation. Default: `...`.
 - `dry-run`: Print the request body without calling the Typefully API. Default: `false`.
 
@@ -135,7 +145,9 @@ Template variables:
 - `{project_name}`
 - `{version}`
 - `{release_type}`
-- `{release_notes}`
+- `{release_notes}`: release notes converted to social-friendly plain text.
+- `{release_notes_plain}`: alias for `{release_notes}`.
+- `{release_notes_markdown}`: raw Markdown release notes.
 - `{previous_version}`
 
 Release-specific override from `RELEASE.md` frontmatter:
@@ -155,6 +167,31 @@ social_message: |
 ```
 
 When `social_message` is present in AutoPub frontmatter, the plugin uses it as the message template for all configured platforms and still expands the same template variables listed above.
+
+You can also override individual platforms from frontmatter:
+
+```md
+---
+release type: minor
+social_message: |
+  Strawberry {version} is out.
+
+  {release_notes}
+social_messages:
+  linkedin: |
+    Strawberry {version} is out.
+
+    This release adds a larger LinkedIn-specific announcement.
+
+    {release_notes}
+---
+
+- Added X
+- Fixed Y
+```
+
+Platform-specific frontmatter overrides take precedence over `social_message`,
+which takes precedence over configured `platform-templates`.
 
 ## Development
 
