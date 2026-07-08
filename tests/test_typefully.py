@@ -75,7 +75,9 @@ def test_missing_api_key_raises(monkeypatch) -> None:
     monkeypatch.delenv("TYPEFULLY_API_KEY", raising=False)
 
     plugin = TypefullyPlugin()
-    plugin.validate_config({"plugin_config": {"typefully": {"social-set-id": "abc-123"}}})
+    plugin.validate_config(
+        {"plugin_config": {"typefully": {"social-set-id": "abc-123"}}}
+    )
 
     with pytest.raises(AutopubException, match="TYPEFULLY_API_KEY"):
         plugin.post_publish(_release_info())
@@ -189,7 +191,9 @@ def test_custom_message_template(mock_urlopen, monkeypatch) -> None:
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")
-def test_frontmatter_social_message_overrides_templates(mock_urlopen, monkeypatch) -> None:
+def test_frontmatter_social_message_overrides_templates(
+    mock_urlopen, monkeypatch
+) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
         config={
@@ -362,6 +366,156 @@ def test_required_social_platforms_allow_subset(monkeypatch) -> None:
     )
 
 
+def test_required_message_substrings_accepts_rendered_platform_message(
+    monkeypatch,
+) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x"],
+            "required-message-substrings": {
+                "x": ["https://strawberry.rocks/release/{version}"],
+            },
+        },
+    )
+
+    plugin.post_check(
+        _release_info(
+            additional_info={
+                "social_messages": {
+                    "x": (
+                        "Strawberry {version} is out! "
+                        "https://strawberry.rocks/release/{version}"
+                    ),
+                },
+            },
+        )
+    )
+
+
+def test_required_message_substrings_rejects_missing_substring(
+    monkeypatch,
+) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x"],
+            "required-message-substrings": {
+                "x": ["https://strawberry.rocks/release/{version}"],
+            },
+        },
+    )
+
+    with pytest.raises(
+        AutopubException,
+        match="https://strawberry.rocks/release/1.0.0",
+    ):
+        plugin.post_check(
+            _release_info(
+                additional_info={
+                    "social_messages": {
+                        "x": "Strawberry {version} is out!",
+                    },
+                },
+            )
+        )
+
+
+@patch("strawberry_autopub_plugins.typefully.urlopen")
+def test_required_message_substrings_are_checked_before_publish(
+    mock_urlopen,
+    monkeypatch,
+) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x"],
+            "required-message-substrings": {
+                "x": ["https://strawberry.rocks/release/{version}"],
+            },
+        },
+    )
+
+    with pytest.raises(
+        AutopubException,
+        match="https://strawberry.rocks/release/1.0.0",
+    ):
+        plugin.post_publish(
+            _release_info(
+                additional_info={
+                    "social_messages": {
+                        "x": "Strawberry {version} is out!",
+                    },
+                },
+            )
+        )
+
+    mock_urlopen.assert_not_called()
+
+
+def test_required_message_substrings_check_final_truncated_message(
+    monkeypatch,
+) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x"],
+            "platform-templates": {
+                "x": (
+                    "Strawberry {version} is out! "
+                    "https://strawberry.rocks/release/{version}"
+                ),
+            },
+            "required-message-substrings": {
+                "x": ["https://strawberry.rocks/release/{version}"],
+            },
+            "max-length": 30,
+        },
+    )
+
+    with pytest.raises(
+        AutopubException,
+        match="https://strawberry.rocks/release/1.0.0",
+    ):
+        plugin.post_check(_release_info())
+
+
+def test_required_message_substrings_reject_disabled_platform(monkeypatch) -> None:
+    plugin = _plugin_with_config(
+        monkeypatch,
+        config={
+            "platforms": ["x"],
+            "required-message-substrings": {
+                "linkedin": ["https://strawberry.rocks/release/{version}"],
+            },
+        },
+    )
+
+    with pytest.raises(
+        AutopubException,
+        match="disabled Typefully platform\\(s\\): linkedin",
+    ):
+        plugin.post_check(_release_info())
+
+
+def test_required_message_substrings_reject_unknown_platform(monkeypatch) -> None:
+    with pytest.raises(
+        ValidationError,
+        match=(
+            "required-message-substrings contains unsupported Typefully platform "
+            "'twitter'"
+        ),
+    ):
+        _plugin_with_config(
+            monkeypatch,
+            config={
+                "required-message-substrings": {
+                    "twitter": ["https://example.com"],
+                },
+            },
+        )
+
+
 def test_release_note_lead_can_be_required(monkeypatch) -> None:
     plugin = _plugin_with_config(
         monkeypatch,
@@ -467,12 +621,9 @@ def test_platform_max_length_must_be_positive_on_publish(
 
 
 @patch("strawberry_autopub_plugins.typefully.urlopen")
-def test_message_truncation_respects_word_boundary(
-    mock_urlopen, monkeypatch
-) -> None:
+def test_message_truncation_respects_word_boundary(mock_urlopen, monkeypatch) -> None:
     message = (
-        "Strawberry is a GraphQL library for Python that makes it easy "
-        "to build APIs."
+        "Strawberry is a GraphQL library for Python that makes it easy to build APIs."
     )
     plugin = _plugin_with_config(
         monkeypatch,

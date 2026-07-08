@@ -109,12 +109,13 @@ publish-mode = "draft"
 tags = ["release", "python"]
 require-social-message = true
 required-social-platforms = ["x", "linkedin"]
+required-message-substrings = { x = ["https://example.com/releases/{version}"] }
 require-release-note-lead = true
 truncation-suffix = "..."
 dry-run = false
 
 [tool.autopub.plugin_config.typefully.platform-templates]
-x = "{project_name} {version} is out now.\n\n{release_notes}"
+x = "{project_name} {version} is out now.\n\n{release_notes}\n\nhttps://example.com/releases/{version}"
 linkedin = "{project_name} {version} has been released.\n\n{release_notes}"
 
 [tool.autopub.plugin_config.typefully.platform-max-lengths]
@@ -133,6 +134,7 @@ Options:
 - `tags`: Optional Typefully tags to attach to the draft.
 - `require-social-message`: Require release notes to include `social_message` or `social_messages` frontmatter before publishing. Default: `false`.
 - `required-social-platforms`: Platforms that must have `social_messages` entries when `require-social-message` is enabled. Defaults to all configured `platforms`.
+- `required-message-substrings`: Per-platform substrings that must appear in the rendered post. Substrings use the same template variables as messages and are checked after truncation, so missing or truncated links fail before publishing.
 - `require-release-note-lead`: Require release notes to start with an approved user-facing lead. Default: `false`.
 - `release-note-leads`: Approved release note prefixes. Defaults to `This release adds ` and `This release fixes `.
 - `max-length`: Optional maximum post length before truncation for all platforms.
