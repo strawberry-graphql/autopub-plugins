@@ -73,6 +73,10 @@ class TypefullyConfig(BaseModel):
         default=None,
         validation_alias="required-social-platforms",
     )
+    required_message_substrings: dict[str, list[str]] = Field(
+        default_factory=dict,
+        validation_alias="required-message-substrings",
+    )
     require_release_note_lead: bool = Field(
         default=False,
         validation_alias="require-release-note-lead",
@@ -101,6 +105,21 @@ class TypefullyConfig(BaseModel):
                 )
 
         return platform_max_lengths
+
+    @field_validator("required_message_substrings")
+    @classmethod
+    def _validate_required_message_substrings(
+        cls, required_message_substrings: dict[str, list[str]]
+    ) -> dict[str, list[str]]:
+        for platform in required_message_substrings:
+            if platform not in SUPPORTED_PLATFORMS:
+                raise ValueError(
+                    _unsupported_platform_message(
+                        "required-message-substrings", platform
+                    )
+                )
+
+        return required_message_substrings
 
 
 def _autopub_error(message: str) -> AutopubException:
@@ -172,9 +191,18 @@ class TypefullyPlugin(AutopubPlugin):
         release_info: ReleaseInfo,
         platform: str,
     ) -> str:
+        message = self._format_template(template, release_info)
+
+        return self._truncate_message(message, platform)
+
+    def _format_template(self, template: str, release_info: ReleaseInfo) -> str:
+        return template.format_map(self._message_variables(release_info))
+
+    def _message_variables(self, release_info: ReleaseInfo) -> dict[str, str]:
         release_notes_markdown = _release_notes_markdown(release_info)
         release_notes = _markdown_to_social_text(release_notes_markdown)
-        variables = {
+
+        return {
             "version": release_info.version or "",
             "release_type": release_info.release_type,
             "release_notes": release_notes,
@@ -183,10 +211,6 @@ class TypefullyPlugin(AutopubPlugin):
             "previous_version": release_info.previous_version or "",
             "project_name": self.config.project_name,
         }
-
-        message = template.format_map(variables)
-
-        return self._truncate_message(message, platform)
 
     def _truncate_message(self, message: str, platform: str) -> str:
         max_length = self._max_length_for_platform(platform)
@@ -265,9 +289,7 @@ class TypefullyPlugin(AutopubPlugin):
                     "social_messages frontmatter platform names must be strings"
                 )
 
-            _validate_supported_platform(
-                platform, source="social_messages frontmatter"
-            )
+            _validate_supported_platform(platform, source="social_messages frontmatter")
 
             if not isinstance(template, str):
                 raise _autopub_error(
@@ -285,24 +307,30 @@ class TypefullyPlugin(AutopubPlugin):
 
         return platform_templates
 
-    def _build_platforms_payload(
-        self,
-        release_info: ReleaseInfo,
-    ) -> dict[str, object]:
-        platforms: dict[str, object] = {}
+    def _message_template_for_platform(
+        self, release_info: ReleaseInfo, platform: str
+    ) -> str:
         frontmatter_template = self._frontmatter_message_template(release_info)
         frontmatter_platform_templates = self._frontmatter_platform_message_templates(
             release_info
         )
 
-        for platform in self.config.platforms:
-            template = (
-                frontmatter_platform_templates.get(platform)
-                or frontmatter_template
-                or self.config.platform_templates.get(
-                    platform, self.config.message_template
-                )
+        return (
+            frontmatter_platform_templates.get(platform)
+            or frontmatter_template
+            or self.config.platform_templates.get(
+                platform, self.config.message_template
             )
+        )
+
+    def _build_platforms_payload(
+        self,
+        release_info: ReleaseInfo,
+    ) -> dict[str, object]:
+        platforms: dict[str, object] = {}
+
+        for platform in self.config.platforms:
+            template = self._message_template_for_platform(release_info, platform)
             message = self._format_message(template, release_info, platform)
             platforms[platform] = {
                 "enabled": True,
@@ -375,8 +403,7 @@ class TypefullyPlugin(AutopubPlugin):
         if missing_platforms:
             platforms = ", ".join(missing_platforms)
             raise _autopub_error(
-                "Typefully social_messages frontmatter is required for: "
-                f"{platforms}"
+                f"Typefully social_messages frontmatter is required for: {platforms}"
             )
 
     def _validate_release_note_lead(self, release_info: ReleaseInfo) -> None:
@@ -395,13 +422,56 @@ class TypefullyPlugin(AutopubPlugin):
                 repr(lead.strip()) for lead in self.config.release_note_leads
             )
             raise _autopub_error(
-                "Release notes must start with an approved user-facing lead: "
-                f"{leads}"
+                f"Release notes must start with an approved user-facing lead: {leads}"
             )
+
+    def _validate_required_message_substrings(self, release_info: ReleaseInfo) -> None:
+        required_message_substrings = self.config.required_message_substrings
+
+        if not required_message_substrings:
+            return
+
+        enabled_platforms = set(self.config.platforms)
+        disabled_platforms = sorted(
+            platform
+            for platform in required_message_substrings
+            if platform not in enabled_platforms
+        )
+
+        if disabled_platforms:
+            platforms = ", ".join(disabled_platforms)
+            raise _autopub_error(
+                "required-message-substrings config references disabled "
+                f"Typefully platform(s): {platforms}"
+            )
+
+        for platform, required_substrings in required_message_substrings.items():
+            template = self._message_template_for_platform(release_info, platform)
+            message = self._format_message(template, release_info, platform)
+
+            missing_substrings: list[str] = []
+
+            for required_substring in required_substrings:
+                formatted_substring = self._format_template(
+                    required_substring, release_info
+                )
+
+                if formatted_substring not in message:
+                    missing_substrings.append(formatted_substring)
+
+            if missing_substrings:
+                substrings = ", ".join(repr(item) for item in missing_substrings)
+                raise _autopub_error(
+                    f"Typefully message for {platform!r} must include required "
+                    f"substring(s): {substrings}"
+                )
 
     def validate_release_notes(self, release_info: ReleaseInfo) -> None:
         self._validate_required_social_messages(release_info)
         self._validate_release_note_lead(release_info)
+
+    def post_check(self, release_info: ReleaseInfo) -> None:
+        self._validate_required_message_substrings(release_info)
 
     def _create_draft(self, body: dict[str, object]) -> None:
         social_set_id = self.config.social_set_id
@@ -437,11 +507,10 @@ class TypefullyPlugin(AutopubPlugin):
             except Exception:
                 detail = str(exc)
 
-            raise _autopub_error(
-                f"Typefully API error ({exc.code}): {detail}"
-            ) from exc
+            raise _autopub_error(f"Typefully API error ({exc.code}): {detail}") from exc
 
     def post_publish(self, release_info: ReleaseInfo) -> None:
+        self._validate_required_message_substrings(release_info)
         body = self._build_request_body(release_info)
 
         if self.config.dry_run:
